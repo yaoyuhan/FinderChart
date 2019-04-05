@@ -78,8 +78,8 @@ def get_lc(name):
     m = marshal.MarshalAccess()
     m.download_lightcurve(name) 
     lc = marshal.get_local_lightcurves(name)
-    lc_dict = [lc[key] for key in lc.keys()][0]
-    return lc_dict
+    #lc_dict = [lc[key] for key in lc.keys()][0]
+    return lc#_dict
 
 
 def get_refstars(xpos, ypos, cat):
@@ -89,7 +89,7 @@ def get_refstars(xpos, ypos, cat):
     Parameters
     ----------
     xpos: x position of target
-    ypos: y position of target
+    ypos: y position of targethttps://github.com/yaoyuhan/FinderChart.git
     cat: ZTF source catalog
     """
     sep_pix = np.sqrt(
@@ -190,14 +190,14 @@ def choose_sci(zquery, out, name, ra, dec):
     if sum(choose) > 1:
         # Of all these images, choose the one where the transient
         # is brightest
-        ind = np.argmin(lc.magpsf.values[choose])
+        ind = np.argmin(lc.mag.values[choose])
         jd_choose = lc['jdobs'][choose].values[ind] 
-        mag_choose = lc['magpsf'][choose].values[ind]
+        mag_choose = lc['mag'][choose].values[ind]
         filt_choose = lc['filter'][choose].values[ind]
     elif sum(choose) == 1:
         # If there is only one choices...
         jd_choose = lc['jdobs'][choose].values[0]
-        mag_choose = lc['magpsf'][choose].values[0]
+        mag_choose = lc['mag'][choose].values[0]
         filt_choose = lc['filter'][choose].values[0]
 
     # Download the corresponding science image
@@ -212,7 +212,9 @@ def choose_sci(zquery, out, name, ra, dec):
     return imfile, catfile
 
 
-def get_finder(ra, dec, name, rad, debug=False, starlist=None, print_starlist=True, telescope="P200", directory=".", minmag=15, maxmag=18.5, mag=np.nan):
+def get_finder(ra, dec, name, rad, 
+               debug=False, starlist=None, print_starlist=True, 
+               telescope="P200", directory=".", minmag=15, maxmag=18.5, mag=np.nan):
     """ Generate finder chart (Code modified from Nadia) """
 
     name = str(name)
