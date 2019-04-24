@@ -77,8 +77,10 @@ def get_lc(name):
     """ Get light curve of target """
     m = marshal.MarshalAccess()
     m.download_lightcurve(name) 
-    lc = marshal.get_local_lightcurves(name)
-    #lc_dict = [lc[key] for key in lc.keys()][0]
+    lcpath = './Data/marshal/lightcurves/'+name+'/marshal_plot_lc_lightcurve_'+name+'.csv'
+    lc = pd.read_csv(lcpath)
+    # lc = marshal.get_local_lightcurves(name)
+    # lc_dict = [lc[key] for key in lc.keys()][0]
     return lc#_dict
 
 
