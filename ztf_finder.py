@@ -214,7 +214,7 @@ def choose_sci(zquery, out, name, ra, dec):
         catfile = dl_loc[ind]
         download_single_url(urls[ind], dl_loc[ind], cookies=None)    
     # for host galaxy:
-    elif len(name)==17:
+    elif len(name)==11:
         urls, dl_loc = zquery.download_data(nodl=True)
         urls = np.array(urls)
         dl_loc = np.array(dl_loc)
@@ -262,8 +262,9 @@ def get_finder(ra, dec, name, rad=0.01,
                starlist=None, print_starlist=True, 
                telescope="P200", minmag=15, maxmag=18.5):
     """ 
-    Generate finder chart 
+    Aim: Generate finder chart 
     
+    Parameters:
     ra: float or string. 
         eg: ra="18h24m25.36s", 210.437583
         
@@ -271,7 +272,7 @@ def get_finder(ra, dec, name, rad=0.01,
         eg: dec="+44d07m50.0s", 46.215583
         
     name: ZTFname or host name. 
-        eg: name="ZTF18aaslhxt_host", "ZTF18abclfee"
+        eg: name="18aaslhxt_h", "ZTF18abclfee"
         
     rad: search radius in the unit of degree
     
@@ -281,11 +282,19 @@ def get_finder(ra, dec, name, rad=0.01,
     starlist: name of the starlist
         eg: starlist="/Users/yuhanyao/Desktop/observation/20190428_LRIS/starlist"
         
+        
+    References:
+    Keck starlist format: https://www2.keck.hawaii.edu/observing/starlist.html
+        First field is the target name in columns 1-16 (tabs and spaces allowed). Maximum length is 15 characters.
+        Next three space-separated tokens (beginning in column 17) are RA in the form HH MM SS.SS (including an arbitrary number of decimal places).
+        Next three space-separated tokens are Dec in the form (-)DD MM SS.S (again, to an arbitrary number of decimal places). Note: if the Dec is between 0 and -1, the DD field MUST be -00).
+        Next token is equinox in the form YYYY.YY (no parentheses; arbitrary number of decimal places), with <=1950 meaning FK4 and 2000 meaning FK5 and APP meaning apparent.
+        
     """
     print ('Using search radius of %.1f arcsec.'%(rad*3600))
     
     name = str(name)
-    assert len(name) in [12, 17]
+    assert len(name) in [12, 11]
     
     assert type(ra)==type(dec)
     if type(ra)==str:
@@ -294,6 +303,23 @@ def get_finder(ra, dec, name, rad=0.01,
         dec = c1.dec.degree
     ra = float(ra)
     dec = float(dec)
+    
+    # prepare to print starlist
+    if telescope == "Keck":
+        name_length = 16 # maximum length of name is 15
+        commentchar = "#"
+        separator = ""
+    elif telescope == "P200":
+        name_length = 20
+        commentchar = "!"
+        separator = "!"
+    
+    #Write to the starlist if the name of the starlist was provided.
+    rah, dech = deg2hour(ra, dec, sep=" ")
+    if (not starlist is None) and (telescope =="Keck"):
+        with open(starlist, "a") as f:
+            f.write( "{:s}{:s} {:s} 2000.0 {:s} {:f} \n".format(name.ljust(name_length), rah, dech, commentchar, target_mag) ) 
+            f.close()
 
     # Get metadata of all images at this location
     print("Querying for metadata...")
@@ -393,14 +419,6 @@ def get_finder(ra, dec, name, rad=0.01,
     order = np.argsort(sep_pix[choose_ind])
     cols = ['orange', 'purple', 'red']
 
-    # prepare to print starlist
-    if telescope == "Keck":
-        commentchar = "#"
-        separator = ""
-    else:
-        commentchar = "!"
-        separator = "!"
-
     for ii in np.arange(nref):
         ref_xpos_original = cat['xpos'][choose_ind][order][ii] - offset_x
         ref_ypos_original = cat['ypos'][choose_ind][order][ii] - offset_y
@@ -448,11 +466,20 @@ def get_finder(ra, dec, name, rad=0.01,
         if telescope == 'Keck':
             # Target name is columns 1-16
             # RA must begin in 17, separated by spaces
-            print ("{:s}{:s} {:s} 2000.0 {:s} raoffset={:.2f} decoffset={:.2f} {:s} r={:.1f} ".format((name+"_S%s" %(ii+1)).ljust(16), refrah, refdech, separator, dra, ddec, commentchar, refmag))
+            print ("{:s}{:s} {:s} 2000.0 {:s} raoffset={:.2f} decoffset={:.2f} {:s} r={:.1f} ".format((name+"_S%s" %(ii+1)).ljust(name_length), refrah, refdech, separator, dra, ddec, commentchar, refmag))
         elif telescope == 'P200':
-            print ("{:s} {:s} {:s}  2000.0 {:s} raoffset={:.2f} decoffset={:.2f} r={:.1f} {:s} ".format((name+"_S%s" %(ii+1)).ljust(20), refrah, refdech, separator, dra, ddec, refmag, commentchar))
-        else:
-            print("I don't recognize this telescope.")
+            print ("{:s} {:s} {:s}  2000.0 {:s} raoffset={:.2f} decoffset={:.2f} r={:.1f} {:s} ".format((name+"_S%s" %(ii+1)).ljust(name_length), refrah, refdech, separator, dra, ddec, refmag, commentchar))
+
+        
+        # and save to file if starlist name is provided
+        if (not starlist is None) and (telescope =="Keck"):
+            with open(starlist, "a") as f:
+                f.write ("{:s}{:s} {:s} 2000.0 {:s} raoffset={:.2f} decoffset={:.2f} {:s} r={:.1f} \n".format((name+"_S%s" %(ii+1)).ljust(name_length), refrah, refdech, separator, dra, ddec, commentchar, refmag))
+                f.close()
+        elif (not starlist is None) and (telescope =="P200"):
+            with open(starlist, "a") as f:
+                f.write("{:s} {:s} {:s}  2000.0 {:s} raoffset={:.2f} decoffset={:.2f} r={:.1f} {:s} \n".format((name+"_S%s" %(ii+1)).ljust(name_length), refrah, refdech, separator, dra, ddec, refmag, commentchar))
+                f.close()
 
     # Plot compass
     plt.plot(
@@ -483,33 +510,5 @@ def get_finder(ra, dec, name, rad=0.01,
     plt.savefig("finder_chart_%s.png" %name)
     plt.close()
 
-    # Print the starlist
-    if telescope == "Keck":
-        commentchar = "#"
-        separator = ""
-    else:
-        commentchar = "!"
-        separator = "!"
-        
-    #Write to the starlist if the name of the starlist was provided.
-    if (not starlist is None) and (telescope =="Keck"):
-        with open(starlist, "a") as f:
-            f.write( "{0} {1} {2}  2000.0 # {3} \n".format(name.ljust(17), ra, dec, target_mag) ) 
-            if (len(catalog)>0):
-                f.write ( "{:s} {:s} {:s}  2000.0 raoffset={:.2f} decoffset={:.2f} r={:.1f} # \n".format( (name+"_S1").ljust(17), S1[0], S1[1], ofR1[0], ofR1[1], catalog["mag"][0]))
-            if (len(catalog)>1):
-                f.write ( "{:s} {:s} {:s}  2000.0 raoffset={:.2f} decoffset={:.2f} r={:.1f} # \n".format( (name+"_S2").ljust(17), S2[0], S2[1], ofR2[0], ofR2[1], catalog["mag"][1]))
-            f.write('\n')
-
-    if (not starlist is None) and (telescope =="P200"):
-        with open(starlist, "a") as f:
-            f.write( "{0} {1} {2}  2000.0 ! {3}\n".format(name.ljust(19), ra, dec, target_mag) )
-            if (len(catalog)>0):
-                f.write ( "{:s} {:s} {:s}  2000.0 ! raoffset={:.2f} decoffset={:.2f} r={:.1f}  \n".format( (name+"_S1").ljust(19), S1[0], S1[1], ofR1[0], ofR1[1], catalog["mag"][0]))
-            if (len(catalog)>1):
-                f.write ( "{:s} {:s} {:s}  2000.0 ! raoffset={:.2f} decoffset={:.2f} r={:.1f}  \n".format( (name+"_S2").ljust(19), S2[0], S2[1], ofR2[0], ofR2[1], catalog["mag"][1]))
-            f.write('\n')     
-
-
-
+ 
     #get_finder(ra, dec, name, rad, telescope=telescope, debug=False, minmag=7, maxmag=18)
