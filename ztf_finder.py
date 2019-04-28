@@ -178,56 +178,127 @@ def choose_ref(zquery, ra, dec):
 
 
 def choose_sci(zquery, out, name, ra, dec):
-    """ Choose a science image to use, and download the file """
-    lc = get_lc(name)
-    # Count the number of detections where limmag > 19.5
-    # If 0, allow limmag > 19
-    limmag = lc.limmag.values
-    limmag_val = 19.5 # must be deeper than this value
-    choose = limmag > limmag_val
-    while sum(choose) == 0:
-        limmag_val += 0.5
+    """ 
+    Choose a science image to use, and download the file 
+    """
+    # for science object:
+    if len(name)==12: 
+        lc = get_lc(name)
+        # Count the number of detections where limmag > 19.5
+        # If 0, allow limmag > 19
+        limmag = lc.limmag.values
+        limmag_val = 19.5 # must be deeper than this value
         choose = limmag > limmag_val
+        while sum(choose) == 0:
+            limmag_val += 0.5
+            choose = limmag > limmag_val
 
-    if sum(choose) > 1:
-        # Of all these images, choose the one where the transient
-        # is brightest
-        ind = np.argmin(lc.mag.values[choose])
-        jd_choose = lc['jdobs'][choose].values[ind] 
-        mag_choose = lc['mag'][choose].values[ind]
-        filt_choose = lc['filter'][choose].values[ind]
-    elif sum(choose) == 1:
-        # If there is only one choices...
-        jd_choose = lc['jdobs'][choose].values[0]
-        mag_choose = lc['mag'][choose].values[0]
-        filt_choose = lc['filter'][choose].values[0]
-
-    # Download the corresponding science image
-    ind = np.argmin(np.abs(out.obsjd-jd_choose))
-    urls, dl_loc = zquery.download_data(nodl=True)
-    imfile = dl_loc[ind]
-    download_single_url(urls[ind], dl_loc[ind], cookies=None)
-    urls, dl_loc = zquery.download_data(nodl=True, suffix='psfcat.fits')
-    catfile = dl_loc[ind]
-    download_single_url(
-            urls[ind], dl_loc[ind], cookies=None)
+        if sum(choose) > 1:
+            # Of all these images, choose the one where the transient is brightest
+            ind = np.argmin(lc.mag.values[choose])
+            jd_choose = lc['jdobs'][choose].values[ind] 
+            # mag_choose = lc['mag'][choose].values[ind]
+            # filt_choose = lc['filter'][choose].values[ind]
+        elif sum(choose) == 1:
+            # If there is only one choices...
+            jd_choose = lc['jdobs'][choose].values[0]
+            # mag_choose = lc['mag'][choose].values[0]
+            # filt_choose = lc['filter'][choose].values[0]
+            
+        # Download the corresponding science image
+        ind = np.argsort(np.abs(out.obsjd-jd_choose))[0]
+        urls, dl_loc = zquery.download_data(nodl=True)
+        imfile = dl_loc[ind]
+        download_single_url(urls[ind], dl_loc[ind], cookies=None)
+        urls, dl_loc = zquery.download_data(nodl=True, suffix='psfcat.fits')
+        catfile = dl_loc[ind]
+        download_single_url(urls[ind], dl_loc[ind], cookies=None)    
+    # for host galaxy:
+    elif len(name)==17:
+        urls, dl_loc = zquery.download_data(nodl=True)
+        urls = np.array(urls)
+        dl_loc = np.array(dl_loc)
+        assert len(urls)==len(out)
+        
+        # restrction on filter -- use r band
+        ix = out['filtercode'].values=="zr"
+        out = out[ix]
+        urls = urls[ix]
+        dl_loc = dl_loc[ix]
+        
+        # restrction on seeing
+        seeing_cut = 2
+        ix = out['seeing'] < seeing_cut
+        if np.sum(ix)<10:
+            seeing_cut = 2.5
+            ix = out['seeing'].values < seeing_cut
+        out = out[ix]
+        urls = urls[ix]
+        dl_loc = dl_loc[ix]
+        
+        # consider: host around the center of the image
+        cinput = SkyCoord(ra, dec, frame='icrs', unit='deg')
+        cimages = SkyCoord(out['ra'].values, out['dec'].values, frame='icrs', unit='deg')
+        seps = cinput.separation(cimages).deg
+        ix = seps < 0.45
+        out = out[ix]
+        urls = urls[ix]
+        dl_loc = dl_loc[ix]
+        
+        # Download the corresponding science image
+        ind = len(dl_loc)-1
+        imfile = dl_loc[ind]
+        imfile_url = urls[ind]
+        download_single_url(imfile_url, imfile, cookies=None)
+        catfile = imfile[:-11]+"psfcat.fits"
+        catfile_url = imfile_url[:-11]+"psfcat.fits"
+        download_single_url(catfile_url, catfile, cookies=None)    
+    
     return imfile, catfile
 
 
-def get_finder(ra, dec, name, rad, 
-               debug=False, starlist=None, print_starlist=True, 
-               telescope="P200", directory=".", minmag=15, maxmag=18.5, mag=np.nan):
-    """ Generate finder chart (Code modified from Nadia) """
-
+def get_finder(ra, dec, name, rad=0.01, 
+               target_mag = np.nan,
+               starlist=None, print_starlist=True, 
+               telescope="P200", minmag=15, maxmag=18.5):
+    """ 
+    Generate finder chart 
+    
+    ra: float or string. 
+        eg: ra="18h24m25.36s", 210.437583
+        
+    dec: float or string, type must be consistent with ra. 
+        eg: dec="+44d07m50.0s", 46.215583
+        
+    name: ZTFname or host name. 
+        eg: name="ZTF18aaslhxt_host", "ZTF18abclfee"
+        
+    rad: search radius in the unit of degree
+    
+    target_mag: magnitude of the target at time of observation, 
+        default shoudl be r band
+    
+    starlist: name of the starlist
+        eg: starlist="/Users/yuhanyao/Desktop/observation/20190428_LRIS/starlist"
+        
+    """
+    print ('Using search radius of %.1f arcsec.'%(rad*3600))
+    
     name = str(name)
+    assert len(name) in [12, 17]
+    
+    assert type(ra)==type(dec)
+    if type(ra)==str:
+        c1 = SkyCoord(ra, dec, frame='icrs')
+        ra = c1.ra.degree
+        dec = c1.dec.degree
     ra = float(ra)
     dec = float(dec)
 
     # Get metadata of all images at this location
     print("Querying for metadata...")
     zquery = query.ZTFQuery()
-    zquery.load_metadata(
-            radec=[ra,dec], size=0.01)
+    zquery.load_metadata(radec=[ra,dec], size=rad)
     out = zquery.metatable
 
     # Do you need to use a reference image?
@@ -248,7 +319,8 @@ def get_finder(ra, dec, name, rad,
     # Get the x and y position of the target,
     # as per the IPAC catalog
     wcs = astropy.wcs.WCS(head)
-    target_pix = wcs.wcs_world2pix([(np.array([ra,dec], np.float_))], 1)[0]
+    world =  np.array([[ra, dec]], np.float_)
+    target_pix = wcs.wcs_world2pix(world, 0)[0]
     xpos = target_pix[0]
     ypos = target_pix[1]
 
@@ -408,6 +480,8 @@ def get_finder(ra, dec, name, rad,
     plt.text(1.02, 0.80, "%.5f %.5f"%(ra, dec),transform=plt.axes().transAxes)
     rah, dech = deg2hour(ra, dec)
     plt.text(1.02, 0.75,rah+"  "+dech, transform=plt.axes().transAxes)
+    plt.savefig("finder_chart_%s.png" %name)
+    plt.close()
 
     # Print the starlist
     if telescope == "Keck":
@@ -420,7 +494,7 @@ def get_finder(ra, dec, name, rad,
     #Write to the starlist if the name of the starlist was provided.
     if (not starlist is None) and (telescope =="Keck"):
         with open(starlist, "a") as f:
-            f.write( "{0} {1} {2}  2000.0 # {3} \n".format(name.ljust(17), r, d, target_mag) ) 
+            f.write( "{0} {1} {2}  2000.0 # {3} \n".format(name.ljust(17), ra, dec, target_mag) ) 
             if (len(catalog)>0):
                 f.write ( "{:s} {:s} {:s}  2000.0 raoffset={:.2f} decoffset={:.2f} r={:.1f} # \n".format( (name+"_S1").ljust(17), S1[0], S1[1], ofR1[0], ofR1[1], catalog["mag"][0]))
             if (len(catalog)>1):
@@ -429,55 +503,13 @@ def get_finder(ra, dec, name, rad,
 
     if (not starlist is None) and (telescope =="P200"):
         with open(starlist, "a") as f:
-            f.write( "{0} {1} {2}  2000.0 ! {3}\n".format(name.ljust(19), r, d, target_mag) )
+            f.write( "{0} {1} {2}  2000.0 ! {3}\n".format(name.ljust(19), ra, dec, target_mag) )
             if (len(catalog)>0):
                 f.write ( "{:s} {:s} {:s}  2000.0 ! raoffset={:.2f} decoffset={:.2f} r={:.1f}  \n".format( (name+"_S1").ljust(19), S1[0], S1[1], ofR1[0], ofR1[1], catalog["mag"][0]))
             if (len(catalog)>1):
                 f.write ( "{:s} {:s} {:s}  2000.0 ! raoffset={:.2f} decoffset={:.2f} r={:.1f}  \n".format( (name+"_S2").ljust(19), S2[0], S2[1], ofR2[0], ofR2[1], catalog["mag"][1]))
             f.write('\n')     
 
-    plt.savefig("finder_chart_%s.png" %name)
-    plt.close()
 
 
-if __name__ == '__main__':
-    parser = argparse.ArgumentParser(description=\
-        '''
-        Creates the finder chart for the given RA, DEC and NAME.
-        
-        Usage: ztf_finder.py <RA [deg]> <Dec [deg]> <Name> <rad [deg]> <telescope [P200|Keck]>
-            
-        ''', formatter_class=argparse.RawTextHelpFormatter)
-        
-        
-    print ("Usage: ztf_finder.py <RA> <Dec> <Name>  <rad [deg]> <telescope [P200|Keck]>")
-    
-    #Check if correct number of arguments are given
-    if len(sys.argv) < 4:
-        print ("Not enough parameters given. \
-                Please, provide at least: finder_chart.py <RA> <Dec> <Name>")
-        sys.exit()
-     
-    ra=sys.argv[1]
-    dec=sys.argv[2]
-    name=str(sys.argv[3])
-    if (len(sys.argv)>=5):
-        rad = float(sys.argv[4])
-        if (rad > 15./60):
-            print ('Requested search radius of %.2f arcmin is larger than 15 arcmin.\
-                    Not sure why you need such a large finder chart... \
-                    reducing to 10 armin for smoother operations...'%(rad * 60))
-            rad = 10./60
-    else:
-        rad = 2./60
-        
-    print ('Using search radius of %.1f arcsec.'%(rad*3600))
-
-    if (len(sys.argv)>5):
-        telescope = sys.argv[5]
-    else:
-        telescope = "P200"
-        print ('Assuming that the telescope you observe will be P200. \
-                If it is "Keck", please specify otherwise.')
-    
-    get_finder(ra, dec, name, rad, telescope=telescope, debug=False, minmag=7, maxmag=18)
+    #get_finder(ra, dec, name, rad, telescope=telescope, debug=False, minmag=7, maxmag=18)
