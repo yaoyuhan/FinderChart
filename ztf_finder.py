@@ -4,17 +4,13 @@ import numpy as np
 from astropy.io import fits as pyfits
 import matplotlib.pyplot as plt
 import pandas as pd
-import argparse
-import sys
 import astropy.wcs
 from astropy.io import fits
 from scipy.ndimage.filters import gaussian_filter
-from astropy.time import Time
 from astropy import units as u
 from astropy.coordinates import SkyCoord
 from ztfquery import query,marshal
 from ztfquery.io import download_single_url
-from ztfquery.io import get_cookie
 
 
 def deg2hour(ra, dec, sep=":"):
@@ -79,63 +75,7 @@ def get_lc(name):
     m.download_lightcurve(name) 
     lcpath = './Data/marshal/lightcurves/'+name+'/marshal_plot_lc_lightcurve_'+name+'.csv'
     lc = pd.read_csv(lcpath)
-    # lc = marshal.get_local_lightcurves(name)
-    # lc_dict = [lc[key] for key in lc.keys()][0]
-    return lc#_dict
-
-
-def get_refstars(xpos, ypos, cat):
-    """
-    Select reference stars.
-    
-    Parameters
-    ----------
-    xpos: x position of target
-    ypos: y position of targethttps://github.com/yaoyuhan/FinderChart.git
-    cat: ZTF source catalog
-    """
-    sep_pix = np.sqrt(
-            (sourceinfo['xpos']-allsourcesinfo['xpos'])**2 + \
-            (sourceinfo['ypos']-allsourcesinfo['ypos'])**2)
-    
-    # should be separated by at least 10 pixels
-    crit_a = np.logical_and(sep_pix > 10, allsourcesinfo['flags']==0)
-    crit_b = np.logical_and(
-            allsourcesinfo['chi'] < 2, allsourcesinfo['snr'] > 10)
-    crit_c = allsourcesinfo['sharp'] < 0.3
-    crit_ab = np.logical_and(crit_a, crit_b)
-    crit = np.logical_and(crit_ab, crit_c)
-    
-    # should be bright
-    mag_crit = np.logical_and(
-            allsourcesinfo['mag'] >= 15, allsourcesinfo['mag'] <= 19)
-    choose_ind = np.where(np.logical_and(crit, mag_crit))
-    
-    # choose the closest three stars
-    nref = 3
-    order = np.argsort(sep_pix[choose_ind])
-    
-    # hack for now
-    filt = 'R'
-    colors = ['red', 'orange', 'purple']
-    shapes = ['box', 'hexagon', 'circle']
-    
-    refstars = []
-    for i in range(0,nref):
-        refstars.append({
-                          'name':  'S%s' %i,
-                          'color':  colors[i],
-                          'shape':  shapes[i],
-                          'dist':  sep_pix[choose_ind][order][i] * 1.0, # pixel scale
-                          'x_sub':  allsourcesinfo['xpos'][choose_ind][order][i],
-                          'y_sub':  allsourcesinfo['ypos'][choose_ind][order][i],
-                          'ra':  allsourcesinfo['ra'][choose_ind][order][i],
-                          'dec':  allsourcesinfo['dec'][choose_ind][order][i],
-                          'mag': allsourcesinfo['mag'][choose_ind][order][i],
-                          'mag_err': allsourcesinfo['emag'][choose_ind][order][i],
-                          'filter': filt
-                        })
-    return refstars
+    return lc
 
 
 def choose_ref(zquery, ra, dec):
@@ -260,7 +200,9 @@ def choose_sci(zquery, out, name, ra, dec):
 def get_finder(ra, dec, name, rad=0.01, 
                target_mag = np.nan,
                starlist=None, print_starlist=True, 
-               telescope="P200", minmag=15, maxmag=18.5):
+               telescope="P200", main_comment="",
+               minmag=15, maxmag=18.5,
+               figdir=None):
     """ 
     Aim: Generate finder chart 
     
@@ -309,17 +251,25 @@ def get_finder(ra, dec, name, rad=0.01,
         name_length = 16 # maximum length of name is 15
         commentchar = "#"
         separator = ""
+        rah_length = 11
     elif telescope == "P200":
         name_length = 20
         commentchar = "!"
-        separator = "!"
+        separator = "|"
+        rah_length = 12
     
     #Write to the starlist if the name of the starlist was provided.
     rah, dech = deg2hour(ra, dec, sep=" ")
-    if (not starlist is None) and (telescope =="Keck"):
-        with open(starlist, "a") as f:
-            f.write( "{:s}{:s} {:s} 2000.0 {:s} {:f} \n".format(name.ljust(name_length), rah, dech, commentchar, target_mag) ) 
-            f.close()
+    if (not starlist is None):
+        s_target_mag = "yyao: (r={0:.1f})".format(target_mag)
+        if telescope =="Keck":
+            with open(starlist, "a") as f:
+                f.write( "{:s}{:s} {:s} 2000.0 {:s} {:s} {:s} {:s} \n".format(name.ljust(name_length), rah.ljust(rah_length), dech, commentchar, main_comment, separator, s_target_mag) ) 
+                f.close()
+        elif telescope =="P200":
+            with open(starlist, "a") as f:
+                f.write( "{:s}{:s} {:s} 2000.0 {:s} {:s} {:s} {:s} \n".format(name.ljust(name_length), rah.ljust(rah_length), dech, commentchar, main_comment, separator, s_target_mag) ) 
+                f.close()
 
     # Get metadata of all images at this location
     print("Querying for metadata...")
@@ -466,20 +416,24 @@ def get_finder(ra, dec, name, rad=0.01,
         if telescope == 'Keck':
             # Target name is columns 1-16
             # RA must begin in 17, separated by spaces
-            print ("{:s}{:s} {:s} 2000.0 {:s} raoffset={:.2f} decoffset={:.2f} {:s} r={:.1f} ".format((name+"_S%s" %(ii+1)).ljust(name_length), refrah, refdech, separator, dra, ddec, commentchar, refmag))
+            print ("{:s}{:s} {:s} 2000.0 {:s} raoffset={:.2f} decoffset={:.2f} {:s} r={:.1f} ".format((name+"_S%s" %(ii+1)).ljust(name_length), 
+                   refrah.ljust(rah_length), refdech, separator, dra, ddec, commentchar, refmag))
         elif telescope == 'P200':
-            print ("{:s} {:s} {:s}  2000.0 {:s} raoffset={:.2f} decoffset={:.2f} r={:.1f} {:s} ".format((name+"_S%s" %(ii+1)).ljust(name_length), refrah, refdech, separator, dra, ddec, refmag, commentchar))
+            print ("{:s}{:s} {:s} 2000.0 {:s} raoffset={:.2f} decoffset={:.2f} r={:.1f} \n".format((name+"_S%s" %(ii+1)).ljust(name_length), 
+                             refrah.ljust(rah_length), refdech, commentchar , dra, ddec, refmag))
 
         
         # and save to file if starlist name is provided
-        if (not starlist is None) and (telescope =="Keck"):
-            with open(starlist, "a") as f:
-                f.write ("{:s}{:s} {:s} 2000.0 {:s} raoffset={:.2f} decoffset={:.2f} {:s} r={:.1f} \n".format((name+"_S%s" %(ii+1)).ljust(name_length), refrah, refdech, separator, dra, ddec, commentchar, refmag))
-                f.close()
-        elif (not starlist is None) and (telescope =="P200"):
-            with open(starlist, "a") as f:
-                f.write("{:s} {:s} {:s}  2000.0 {:s} raoffset={:.2f} decoffset={:.2f} r={:.1f} {:s} \n".format((name+"_S%s" %(ii+1)).ljust(name_length), refrah, refdech, separator, dra, ddec, refmag, commentchar))
-                f.close()
+        if (not starlist is None):
+            if telescope =="Keck":
+                with open(starlist, "a") as f:
+                    f.write ("{:s}{:s} {:s} 2000.0 {:s} raoffset={:.2f} decoffset={:.2f} {:s} r={:.1f} \n".format((name+"_S%s" %(ii+1)).ljust(name_length), refrah.ljust(rah_length), refdech, commentchar, dra, ddec, separator, refmag))
+                    f.close()
+            elif telescope=="P200":
+                with open(starlist, "a") as f:
+                    f.write ("{:s}{:s} {:s} 2000.0 {:s} raoffset={:.2f} decoffset={:.2f} r={:.1f} \n".format((name+"_S%s" %(ii+1)).ljust(name_length), 
+                             refrah.ljust(rah_length), refdech, commentchar , dra, ddec, refmag))
+                    f.close()
 
     # Plot compass
     plt.plot(
@@ -507,7 +461,11 @@ def get_finder(ra, dec, name, rad=0.01,
     plt.text(1.02, 0.80, "%.5f %.5f"%(ra, dec),transform=plt.axes().transAxes)
     rah, dech = deg2hour(ra, dec)
     plt.text(1.02, 0.75,rah+"  "+dech, transform=plt.axes().transAxes)
-    plt.savefig("finder_chart_%s.png" %name)
+    
+    if figdir==None:
+        plt.savefig("finder_chart_%s.png" %name)
+    else:
+        plt.savefig(figdir+"finder_chart_%s.png" %name)
     plt.close()
 
  
