@@ -122,6 +122,7 @@ def choose_sci(zquery, out, name, ra, dec):
     Choose a science image to use, and download the file 
     """
     # for science object:
+        
     if len(name)==12: 
         lc = get_lc(name)
         # Count the number of detections where limmag > 19.5
@@ -236,7 +237,7 @@ def get_finder(ra, dec, name, rad=0.01,
     print ('Using search radius of %.1f arcsec.'%(rad*3600))
     
     name = str(name)
-    assert len(name) in [12, 11]
+    #assert len(name) in [12, 11]
     
     assert type(ra)==type(dec)
     if type(ra)==str:
@@ -279,7 +280,7 @@ def get_finder(ra, dec, name, rad=0.01,
 
     # Do you need to use a reference image?
     need_ref = len(out) == 0
-    if need_ref:
+    if need_ref or name[:4]=="ZTFJ":
         print("Using a reference image")
         imfile, catfile = choose_ref(zquery, ra, dec)
     else:
